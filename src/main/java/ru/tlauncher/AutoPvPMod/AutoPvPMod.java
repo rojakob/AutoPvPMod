@@ -25,7 +25,7 @@ public class AutoPvPMod {
 
     public static final String MODID = "autopvp";
     public static final String NAME = "Auto PvP";
-    public static final String VERSION = "1.4"; // Версия с фиксом наведения
+    public static final String VERSION = "1.5"; // Версия с Aimbot
 
     private static KeyBinding keyToggleMod;
     private static KeyBinding keyToggleDelay;
@@ -33,21 +33,19 @@ public class AutoPvPMod {
     private static boolean isModActive = false;
     private static int attackTimer = 0;
     
-    // Динамическая задержка (по умолчанию 13 тиков для 1.12)
+    // Динамическая задержка
     private static int ATTACK_DELAY = 13; 
 
     @Mod.EventHandler
     public void init(FMLInitializationEvent event) {
-        // Клавиша X - вкл/выкл мод
         keyToggleMod = new KeyBinding("key.autopvp.toggle", Keyboard.KEY_X, "key.categories.combat");
-        // Клавиша R - смена задержки (13 <-> 4)
         keyToggleDelay = new KeyBinding("key.autopvp.delay", Keyboard.KEY_R, "key.categories.combat");
         
         ClientRegistry.registerKeyBinding(keyToggleMod);
         ClientRegistry.registerKeyBinding(keyToggleDelay);
         
         MinecraftForge.EVENT_BUS.register(this);
-        System.out.println("AutoPvP Mod v1.4 (Raycast Fix) загружен!");
+        System.out.println("AutoPvP Mod v1.5 (Aimbot Edition) загружен!");
     }
 
     @SubscribeEvent
@@ -55,71 +53,106 @@ public class AutoPvPMod {
         Minecraft mc = Minecraft.getMinecraft();
         if (mc.player == null) return;
 
-        // Обработка клавиши X (Вкл/Выкл мод)
         if (keyToggleMod.isPressed()) {
             isModActive = !isModActive;
             String msg = "AutoPvP: " + (isModActive ? "§aВключен" : "§cВыключен");
             mc.player.sendMessage(new TextComponentString(msg));
-            
-            attackTimer = 0; // Сбрасываем таймер
+            attackTimer = 0; 
         }
 
-        // Обработка клавиши R (Переключение задержки)
         if (keyToggleDelay.isPressed()) {
             ATTACK_DELAY = (ATTACK_DELAY == 13) ? 4 : 13;
-            
             String msg = "§eAutoPvP: Задержка переключена на §b" + ATTACK_DELAY + " §eтиков";
             mc.player.sendMessage(new TextComponentString(msg));
-            
-            attackTimer = 0; // Сбрасываем таймер, чтобы новая задержка применилась сразу
+            attackTimer = 0; 
         }
     }
 
     @SubscribeEvent
     public void onPlayerTick(TickEvent.PlayerTickEvent event) {
-        // Работаем только на клиенте и в конце тика
         if (event.phase != TickEvent.Phase.END || !event.player.world.isRemote) return;
         
         EntityPlayer player = event.player;
         if (player != Minecraft.getMinecraft().player || !isModActive) return;
 
-        // Накапливаем таймер атаки
+        // --- 🤖 ЛОГИКА AIMBOT (Удержание Left Alt) ---
+        // Оптимизация: проверяем нажатие клавиши ДО того, как искать цели
+        if (Keyboard.isKeyDown(Keyboard.KEY_LMENU)) {
+            Entity aimTarget = findAimTarget(player);
+            if (aimTarget != null) {
+                // Математика наведения
+                double dx = aimTarget.posX - player.posX;
+                double dy = (aimTarget.posY + (aimTarget.height / 2.0)) - (player.posY + player.getEyeHeight());
+                double dz = aimTarget.posZ - player.posZ;
+                double dist = Math.sqrt(dx * dx + dz * dz);
+
+                // Вычисляем углы
+                float targetYaw = (float) (Math.atan2(dz, dx) * 180.0D / Math.PI) - 90.0F;
+                float targetPitch = (float) (-(Math.atan2(dy, dist) * 180.0D / Math.PI));
+
+                // Мгновенно поворачиваем камеру (с защитой от рывков при переходе через 180 градусов)
+                player.rotationYaw = targetYaw;
+                player.rotationPitch = targetPitch;
+                
+                // Синхронизируем прошлые углы, чтобы не было визуального "дрожания"
+                player.prevRotationYaw = targetYaw;
+                player.prevRotationPitch = targetPitch;
+            }
+        }
+
+        // --- ⚔️ ЛОГИКА АТАКИ ---
         if (attackTimer < ATTACK_DELAY) {
             attackTimer++;
         }
-        if (attackTimer < ATTACK_DELAY) return; // Ждем нужное количество тиков
+        if (attackTimer < ATTACK_DELAY) return;
 
-        // Ищем цель
-        Entity target = findTarget(player);
+        // Ищем цель для удара (луч взгляда, который мы только что повернули)
+        Entity target = findAttackTarget(player);
         if (target == null) return;
 
-        // Наносим удар
         Minecraft.getMinecraft().playerController.attackEntity(player, target);
-        attackTimer = 0; // Сбрасываем таймер после успешного удара
+        attackTimer = 0; 
     }
 
-    // 🔍 Поиск цели через пересечение луча взгляда с хитбоксом (работает под любым углом)
-    private Entity findTarget(EntityPlayer player) {
+    // 🎯 Поиск цели для Aimbot (ищет ближайшего врага в радиусе 6 блоков, без проверки взгляда)
+    private Entity findAimTarget(EntityPlayer player) {
+        double reach = 6.0; // Радиус поиска для наведения
+        AxisAlignedBB area = player.getEntityBoundingBox().grow(reach);
+        List<EntityLivingBase> entities = player.world.getEntitiesWithinAABB(EntityLivingBase.class, area, e -> e != player && e.isEntityAlive());
+        
+        Entity bestTarget = null;
+        double bestDistance = Double.MAX_VALUE;
+
+        for (EntityLivingBase entity : entities) {
+            // Проверяем дистанцию от глаз игрока до центра врага
+            double dist = player.getDistance(entity);
+            if (dist < bestDistance) {
+                bestDistance = dist;
+                bestTarget = entity;
+            }
+        }
+        return bestTarget;
+    }
+
+    // 🔍 Поиск цели для Атаки (только та, на которую направлен прицел)
+    private Entity findAttackTarget(EntityPlayer player) {
         double reach = 3.0; 
         AxisAlignedBB area = player.getEntityBoundingBox().grow(reach + 1.0);
         List<EntityLivingBase> entities = player.world.getEntitiesWithinAABB(EntityLivingBase.class, area, e -> e != player && e.isEntityAlive());
         
-        // Берем позицию глаз игрока
         Vec3d eyePos = player.getPositionEyes(1.0F);
         Vec3d lookVec = player.getLookVec();
-        Vec3d reachVec = eyePos.add(lookVec.scale(reach)); // Конечная точка луча
+        Vec3d reachVec = eyePos.add(lookVec.scale(reach)); 
 
         Entity bestTarget = null;
         double bestDistance = Double.MAX_VALUE;
 
         for (EntityLivingBase entity : entities) {
-            // Быстрая проверка дистанции до хитбокса (отсекаем слишком далеких)
             double distanceToHitbox = player.getDistance(entity) - (entity.width / 2.0);
             if (distanceToHitbox > reach) continue;
 
-            // Проверяем, пересекает ли луч взгляда хитбокс сущности (с запасом 0.1 блока)
             RayTraceResult intercept = entity.getEntityBoundingBox().grow(0.1).calculateIntercept(eyePos, reachVec);
-            if (intercept == null) continue; // Если луч не попал в хитбокс — пропускаем
+            if (intercept == null) continue; 
 
             if (distanceToHitbox < bestDistance) {
                 bestDistance = distanceToHitbox;
