@@ -5,6 +5,7 @@ import net.minecraft.client.settings.KeyBinding;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityLivingBase;
 import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.network.play.client.C02PacketUseEntity;
 import net.minecraft.util.math.AxisAlignedBB;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.util.text.TextComponentString;
@@ -24,14 +25,14 @@ public class AutoPvPMod {
 
     public static final String MODID = "autopvp";
     public static final String NAME = "Auto PvP";
-    public static final String VERSION = "1.2";
+    public static final String VERSION = "2.0";
 
     private static KeyBinding keyToggleMod;
     private static KeyBinding keyToggleCrit;
 
     private static boolean isModActive = false;
     private static boolean isCritActive = false;
-    private static boolean waitingForFall = false; // Флаг: мы прыгнули и ждем падения
+    private static boolean waitingForFall = false;
 
     private static int attackTimer = 0;
     private static final int ATTACK_DELAY = 12;
@@ -45,7 +46,7 @@ public class AutoPvPMod {
         ClientRegistry.registerKeyBinding(keyToggleCrit);
         
         MinecraftForge.EVENT_BUS.register(this);
-        System.out.println("AutoPvP Mod v1.2 (Perfect Crits) загружен!");
+        System.out.println("AutoPvP Mod v2.0 (Perfect Reach & Crits) загружен!");
     }
 
     @SubscribeEvent
@@ -71,7 +72,7 @@ public class AutoPvPMod {
                 return;
             }
             isCritActive = !isCritActive;
-            waitingForFall = false; // Сбрасываем ожидание при переключении
+            waitingForFall = false;
             String msg = "§eКритические прыжки: " + (isCritActive ? "§aВключены" : "§cВыключены");
             mc.player.sendMessage(new TextComponentString(msg));
         }
@@ -84,28 +85,27 @@ public class AutoPvPMod {
         EntityPlayer player = event.player;
         if (player != Minecraft.getMinecraft().player || !isModActive) return;
 
-        // Если мы в процессе ожидания падения для крита
+        // --- Логика ожидания падения для крита ---
         if (waitingForFall) {
-            // Крит возможен только когда мы падаем (motionY < 0) и не на земле
-            if (player.motionY < 0 && !player.onGround && player.fallDistance > 0.0F) {
+            // Критический удар возможен только когда игрок падает (motionY < 0) и не на земле
+            if (player.motionY < 0 && !player.onGround) {
                 Entity target = findTarget(player);
                 if (target != null) {
-                    // Удар в фазе падения = КРИТ!
-                    Minecraft.getMinecraft().playerController.attackEntity(player, target);
+                    performAttack(player, target); // Бьем напрямую пакетом
                     waitingForFall = false;
-                    attackTimer = 0; // Сбрасываем таймер после успешного удара
+                    attackTimer = 0;
                 } else {
-                    // Если цель убежала, просто сбрасываем ожидание, чтобы не зависнуть
-                    waitingForFall = false; 
+                    // Цель убежала, сбрасываем ожидание
+                    waitingForFall = false;
                 }
             } else if (player.onGround) {
-                // Если мы уже приземлились, а удара так и не было — сбрасываем
+                // Приземлились, а удара так и не было — сбрасываем
                 waitingForFall = false;
             }
-            return; // Пока ждем падения, другие действия не выполняем
+            return; // Пока ждем падения, ничего больше не делаем
         }
 
-        // Накапливаем таймер атаки
+        // --- Обычная логика атаки по таймеру ---
         if (attackTimer < ATTACK_DELAY) {
             attackTimer++;
         }
@@ -114,21 +114,20 @@ public class AutoPvPMod {
         Entity target = findTarget(player);
         if (target == null) return;
 
-        if (isCritActive && player.onGround && !player.isSprinting() && !player.isInWater() && !player.isOnLadder()) {
-            // 🚀 Инициируем прыжок для крита. Удар в этом тике НЕ наносим.
+        if (isCritActive && player.onGround && !player.isInWater() && !player.isOnLadder()) {
+            // Прыгаем для крита. Удар пока НЕ наносим.
             player.jump();
-            waitingForFall = true; // Переходим в режим ожидания падения
-            // attackTimer не сбрасываем здесь, он сбросится после фактического удара
+            waitingForFall = true;
         } else {
-            // Обычный удар без критов
-            Minecraft.getMinecraft().playerController.attackEntity(player, target);
+            // Обычный удар (без критов)
+            performAttack(player, target);
             attackTimer = 0;
         }
     }
 
-    // Улучшенный поиск цели (тот же, что и в промежуточной версии)
+    // 🔍 Поиск цели с увеличенной дальностью (до 6 блоков, как на сервере)
     private Entity findTarget(EntityPlayer player) {
-        double reach = 3.0;
+        double reach = 6.0; // Серверная дальность атаки
         AxisAlignedBB area = player.getEntityBoundingBox().grow(reach + 1.0);
         List<EntityLivingBase> entities = player.world.getEntitiesWithinAABB(EntityLivingBase.class, area, e -> e != player && e.isEntityAlive());
         
@@ -137,9 +136,11 @@ public class AutoPvPMod {
         double bestDistance = Double.MAX_VALUE;
 
         for (EntityLivingBase entity : entities) {
+            // Расстояние от глаз игрока до хитбокса цели
             double distanceToHitbox = player.getDistance(entity) - (entity.width / 2.0);
             if (distanceToHitbox > reach) continue;
 
+            // Проверка, что цель в поле зрения (угол ~90 градусов)
             Vec3d toEntity = new Vec3d(entity.posX - player.posX, entity.posY - player.posY, entity.posZ - player.posZ).normalize();
             if (lookVec.dotProduct(toEntity) < 0.7) continue;
 
@@ -149,5 +150,16 @@ public class AutoPvPMod {
             }
         }
         return bestTarget;
+    }
+
+    // ⚔️ Прямая отправка пакета атаки (обходит ограничение PlayerControllerMP в 3 блока)
+    private void performAttack(EntityPlayer player, Entity target) {
+        // Свайп рукой для визуала
+        player.swingArm(net.minecraft.util.EnumHand.MAIN_HAND);
+        
+        // Отправляем пакет атаки напрямую на сервер
+        Minecraft.getMinecraft().getConnection().sendPacket(
+            new C02PacketUseEntity(target, C02PacketUseEntity.Action.ATTACK)
+        );
     }
 }
