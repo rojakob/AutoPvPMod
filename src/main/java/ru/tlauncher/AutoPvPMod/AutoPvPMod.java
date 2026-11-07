@@ -26,7 +26,7 @@ public class AutoPvPMod {
 
     public static final String MODID = "autopvp";
     public static final String NAME = "Auto PvP";
-    public static final String VERSION = "1.6"; // Фикс серверного урона
+    public static final String VERSION = "1.6.1"; // Фикс компиляции
 
     private static KeyBinding keyToggleMod;
     private static KeyBinding keyToggleDelay;
@@ -44,7 +44,7 @@ public class AutoPvPMod {
         ClientRegistry.registerKeyBinding(keyToggleDelay);
         
         MinecraftForge.EVENT_BUS.register(this);
-        System.out.println("AutoPvP Mod v1.6 (Server Sync Edition) загружен!");
+        System.out.println("AutoPvP Mod v1.6.1 (Server Sync Fixed) загружен!");
     }
 
     @SubscribeEvent
@@ -91,9 +91,10 @@ public class AutoPvPMod {
                 player.prevRotationYaw = targetYaw;
                 player.prevRotationPitch = targetPitch;
 
-                // 🔑 КРИТИЧЕСКИ ВАЖНО: Отправляем пакет поворота на сервер СРАЗУ!
-                // Это гарантирует, что сервер узнает о повороте ДО того, как придет пакет атаки.
-                player.connection.sendPacket(new CPacketPlayer.Rotation(targetYaw, targetPitch, player.onGround));
+                // 🔑 Отправляем пакет поворота на сервер через соединение Minecraft
+                Minecraft.getMinecraft().getConnection().sendPacket(
+                    new CPacketPlayer.Rotation(targetYaw, targetPitch, player.onGround)
+                );
             }
         }
 
@@ -106,7 +107,6 @@ public class AutoPvPMod {
         Entity target = findAttackTarget(player);
         if (target == null) return;
 
-        // Наносим удар
         Minecraft.getMinecraft().playerController.attackEntity(player, target);
         attackTimer = 0; 
     }
