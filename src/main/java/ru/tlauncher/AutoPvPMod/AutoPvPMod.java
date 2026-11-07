@@ -5,7 +5,8 @@ import net.minecraft.client.settings.KeyBinding;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityLivingBase;
 import net.minecraft.entity.player.EntityPlayer;
-import net.minecraft.network.play.client.C02PacketUseEntity;
+import net.minecraft.network.play.client.CPacketUseEntity;
+import net.minecraft.util.EnumHand;
 import net.minecraft.util.math.AxisAlignedBB;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.util.text.TextComponentString;
@@ -25,7 +26,7 @@ public class AutoPvPMod {
 
     public static final String MODID = "autopvp";
     public static final String NAME = "Auto PvP";
-    public static final String VERSION = "2.0";
+    public static final String VERSION = "2.1";
 
     private static KeyBinding keyToggleMod;
     private static KeyBinding keyToggleCrit;
@@ -46,7 +47,7 @@ public class AutoPvPMod {
         ClientRegistry.registerKeyBinding(keyToggleCrit);
         
         MinecraftForge.EVENT_BUS.register(this);
-        System.out.println("AutoPvP Mod v2.0 (Perfect Reach & Crits) загружен!");
+        System.out.println("AutoPvP Mod v2.1 (CPacketUseEntity Fix) загружен!");
     }
 
     @SubscribeEvent
@@ -85,27 +86,22 @@ public class AutoPvPMod {
         EntityPlayer player = event.player;
         if (player != Minecraft.getMinecraft().player || !isModActive) return;
 
-        // --- Логика ожидания падения для крита ---
         if (waitingForFall) {
-            // Критический удар возможен только когда игрок падает (motionY < 0) и не на земле
             if (player.motionY < 0 && !player.onGround) {
                 Entity target = findTarget(player);
                 if (target != null) {
-                    performAttack(player, target); // Бьем напрямую пакетом
+                    performAttack(player, target);
                     waitingForFall = false;
                     attackTimer = 0;
                 } else {
-                    // Цель убежала, сбрасываем ожидание
                     waitingForFall = false;
                 }
             } else if (player.onGround) {
-                // Приземлились, а удара так и не было — сбрасываем
                 waitingForFall = false;
             }
-            return; // Пока ждем падения, ничего больше не делаем
+            return;
         }
 
-        // --- Обычная логика атаки по таймеру ---
         if (attackTimer < ATTACK_DELAY) {
             attackTimer++;
         }
@@ -115,19 +111,16 @@ public class AutoPvPMod {
         if (target == null) return;
 
         if (isCritActive && player.onGround && !player.isInWater() && !player.isOnLadder()) {
-            // Прыгаем для крита. Удар пока НЕ наносим.
             player.jump();
             waitingForFall = true;
         } else {
-            // Обычный удар (без критов)
             performAttack(player, target);
             attackTimer = 0;
         }
     }
 
-    // 🔍 Поиск цели с увеличенной дальностью (до 6 блоков, как на сервере)
     private Entity findTarget(EntityPlayer player) {
-        double reach = 6.0; // Серверная дальность атаки
+        double reach = 6.0;
         AxisAlignedBB area = player.getEntityBoundingBox().grow(reach + 1.0);
         List<EntityLivingBase> entities = player.world.getEntitiesWithinAABB(EntityLivingBase.class, area, e -> e != player && e.isEntityAlive());
         
@@ -136,11 +129,9 @@ public class AutoPvPMod {
         double bestDistance = Double.MAX_VALUE;
 
         for (EntityLivingBase entity : entities) {
-            // Расстояние от глаз игрока до хитбокса цели
             double distanceToHitbox = player.getDistance(entity) - (entity.width / 2.0);
             if (distanceToHitbox > reach) continue;
 
-            // Проверка, что цель в поле зрения (угол ~90 градусов)
             Vec3d toEntity = new Vec3d(entity.posX - player.posX, entity.posY - player.posY, entity.posZ - player.posZ).normalize();
             if (lookVec.dotProduct(toEntity) < 0.7) continue;
 
@@ -152,14 +143,10 @@ public class AutoPvPMod {
         return bestTarget;
     }
 
-    // ⚔️ Прямая отправка пакета атаки (обходит ограничение PlayerControllerMP в 3 блока)
     private void performAttack(EntityPlayer player, Entity target) {
-        // Свайп рукой для визуала
-        player.swingArm(net.minecraft.util.EnumHand.MAIN_HAND);
-        
-        // Отправляем пакет атаки напрямую на сервер
+        player.swingArm(EnumHand.MAIN_HAND);
         Minecraft.getMinecraft().getConnection().sendPacket(
-            new C02PacketUseEntity(target, C02PacketUseEntity.Action.ATTACK)
+            new CPacketUseEntity(target, CPacketUseEntity.Action.ATTACK)
         );
     }
 }
