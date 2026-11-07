@@ -32,7 +32,7 @@ public class AutoPvPMod {
     
     private static boolean isModActive = false;
     private static int attackTimer = 0;
-    private static int ATTACK_DELAY = 13; 
+    private static int ATTACK_DELAY = 12; 
 
     @Mod.EventHandler
     public void init(FMLInitializationEvent event) {
@@ -59,7 +59,7 @@ public class AutoPvPMod {
         }
 
         if (keyToggleDelay.isPressed()) {
-            ATTACK_DELAY = (ATTACK_DELAY == 13) ? 4 : 13;
+            ATTACK_DELAY = (ATTACK_DELAY == 12) ? 5 : 12;
             String msg = "§eAutoPvP: Задержка переключена на §b" + ATTACK_DELAY + " §eтиков";
             mc.player.sendMessage(new TextComponentString(msg));
             attackTimer = 0; 
