@@ -22,24 +22,24 @@ import java.util.List;
 @Mod(modid = AutoPvPMod.MODID, name = AutoPvPMod.NAME, version = AutoPvPMod.VERSION)
 public class AutoPvPMod {
 
-    public static final String MODID = "autopvp18";
-    public static final String NAME = "Auto PvP";
-    public static final String VERSION = "1.2"; // Поднял версию для чистоты
+    public static final String MODID = "autopvp18"; // Изменено на autopvp18
+    public static final String NAME = "Auto PvP 1.8";
+    public static final String VERSION = "1.8"; // Поднял версию для ясности
 
     private static KeyBinding keyToggleMod;
     private static boolean isModActive = false;
     private static int attackTimer = 0;
-    private static final int ATTACK_DELAY = 4; // 100% заряда для меча (1.6 attack speed)
+    private static final int ATTACK_DELAY = 4; // 4 тика = 5 CPS (идеально для 1.8 PvP)
 
     @Mod.EventHandler
     public void init(FMLInitializationEvent event) {
-        // Оставили только клавишу X
-        keyToggleMod = new KeyBinding("key.autopvp.toggle", Keyboard.KEY_Y, "key.categories.combat");
+        // Изменили клавишу на Z
+        keyToggleMod = new KeyBinding("key.autopvp18.toggle", Keyboard.KEY_Z, "key.categories.combat");
         
         ClientRegistry.registerKeyBinding(keyToggleMod);
         
         MinecraftForge.EVENT_BUS.register(this);
-        System.out.println("AutoPvP Mod v1.2 (Survival Clean Edition) загружен!");
+        System.out.println("AutoPvP 1.8 Mod загружен! Клавиша Z для активации.");
     }
 
     @SubscribeEvent
@@ -47,10 +47,10 @@ public class AutoPvPMod {
         Minecraft mc = Minecraft.getMinecraft();
         if (mc.player == null) return;
 
-        // Обработка только клавиши X (Вкл/Выкл мод)
+        // Обработка клавиши Z (Вкл/Выкл мод)
         if (keyToggleMod.isPressed()) {
             isModActive = !isModActive;
-            String msg = "AutoPvP1.8: " + (isModActive ? "§aВключен" : "§cВыключен");
+            String msg = "AutoPvP 1.8: " + (isModActive ? "§aВключен" : "§cВыключен");
             mc.player.sendMessage(new TextComponentString(msg));
             
             attackTimer = 0; // Сбрасываем таймер при переключении
@@ -69,7 +69,7 @@ public class AutoPvPMod {
         if (attackTimer < ATTACK_DELAY) {
             attackTimer++;
         }
-        if (attackTimer < ATTACK_DELAY) return; // Ждем полной перезарядки меча
+        if (attackTimer < ATTACK_DELAY) return; // Ждем 4 тика
 
         // Ищем цель
         Entity target = findTarget(player);
@@ -80,7 +80,7 @@ public class AutoPvPMod {
         attackTimer = 0; // Сбрасываем таймер после успешного удара
     }
 
-    // 🔍 Улучшенный поиск цели (честные 3 блока для выживания)
+    // 🔍 Поиск цели (честные 3 блока для выживания)
     private Entity findTarget(EntityPlayer player) {
         double reach = 3.0; 
         AxisAlignedBB area = player.getEntityBoundingBox().grow(reach + 1.0);
