@@ -26,7 +26,7 @@ public class AutoPvPMod {
 
     public static final String MODID = "autopvp";
     public static final String NAME = "Auto PvP";
-    public static final String VERSION = "1.6.1"; // Фикс компиляции
+    public static final String VERSION = "1.7"; // Финальная версия с фиксом сервера
 
     private static KeyBinding keyToggleMod;
     private static KeyBinding keyToggleDelay;
@@ -44,7 +44,7 @@ public class AutoPvPMod {
         ClientRegistry.registerKeyBinding(keyToggleDelay);
         
         MinecraftForge.EVENT_BUS.register(this);
-        System.out.println("AutoPvP Mod v1.6.1 (Server Sync Fixed) загружен!");
+        System.out.println("AutoPvP Mod v1.7 (Server Bypass Edition) загружен!");
     }
 
     @SubscribeEvent
@@ -91,7 +91,7 @@ public class AutoPvPMod {
                 player.prevRotationYaw = targetYaw;
                 player.prevRotationPitch = targetPitch;
 
-                // 🔑 Отправляем пакет поворота на сервер через соединение Minecraft
+                // Синхронизация поворота с сервером
                 Minecraft.getMinecraft().getConnection().sendPacket(
                     new CPacketPlayer.Rotation(targetYaw, targetPitch, player.onGround)
                 );
@@ -107,6 +107,21 @@ public class AutoPvPMod {
         Entity target = findAttackTarget(player);
         if (target == null) return;
 
+        // 🔑 ФИКС №1: Проверяем, видит ли сервер цель. Если нет — не бьем в пустоту.
+        if (!player.canEntityBeSeen(target)) {
+            return; 
+        }
+
+        // 🔑 ФИКС №2: Синхронизируем позицию и поворот перед ударом, чтобы сервер обновил данные
+        Minecraft.getMinecraft().getConnection().sendPacket(
+            new CPacketPlayer.PositionRotation(
+                player.posX, player.posY, player.posZ, 
+                player.rotationYaw, player.rotationPitch, 
+                player.onGround
+            )
+        );
+
+        // Наносим удар
         Minecraft.getMinecraft().playerController.attackEntity(player, target);
         attackTimer = 0; 
     }
