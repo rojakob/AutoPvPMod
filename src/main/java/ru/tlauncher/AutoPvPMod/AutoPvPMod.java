@@ -29,12 +29,12 @@ public class AutoPvPMod {
     private static KeyBinding keyToggleMod;
     private static boolean isModActive = false;
     private static int attackTimer = 0;
-    private static final int ATTACK_DELAY = 13; // 100% заряда для меча (1.6 attack speed)
+    private static final int ATTACK_DELAY = 4; // 100% заряда для меча (1.6 attack speed)
 
     @Mod.EventHandler
     public void init(FMLInitializationEvent event) {
         // Оставили только клавишу X
-        keyToggleMod = new KeyBinding("key.autopvp.toggle", Keyboard.KEY_X, "key.categories.combat");
+        keyToggleMod = new KeyBinding("key.autopvp.toggle", Keyboard.KEY_Y, "key.categories.combat");
         
         ClientRegistry.registerKeyBinding(keyToggleMod);
         
@@ -50,7 +50,7 @@ public class AutoPvPMod {
         // Обработка только клавиши X (Вкл/Выкл мод)
         if (keyToggleMod.isPressed()) {
             isModActive = !isModActive;
-            String msg = "AutoPvP: " + (isModActive ? "§aВключен" : "§cВыключен");
+            String msg = "AutoPvP1.8: " + (isModActive ? "§aВключен" : "§cВыключен");
             mc.player.sendMessage(new TextComponentString(msg));
             
             attackTimer = 0; // Сбрасываем таймер при переключении
