@@ -25,7 +25,7 @@ public class AutoPvPMod {
 
     public static final String MODID = "autopvp";
     public static final String NAME = "Auto PvP";
-    public static final String VERSION = "1.9";
+    public static final String VERSION = "1.8"; // The Packet Fix
 
     private static KeyBinding keyToggleMod;
     private static KeyBinding keyToggleDelay;
@@ -43,7 +43,7 @@ public class AutoPvPMod {
         ClientRegistry.registerKeyBinding(keyToggleDelay);
         
         MinecraftForge.EVENT_BUS.register(this);
-        System.out.println("AutoPvP Mod v1.9 (Fully Optimized) загружен!");
+        System.out.println("AutoPvP Mod v1.8 (Packet Fix) загружен!");
     }
 
     @SubscribeEvent
@@ -53,13 +53,15 @@ public class AutoPvPMod {
 
         if (keyToggleMod.isPressed()) {
             isModActive = !isModActive;
-            mc.player.sendMessage(new TextComponentString("AutoPvP: " + (isModActive ? "§aВключен" : "§cВыключен")));
+            String msg = "AutoPvP: " + (isModActive ? "§aВключен" : "§cВыключен");
+            mc.player.sendMessage(new TextComponentString(msg));
             attackTimer = 0; 
         }
 
         if (keyToggleDelay.isPressed()) {
             ATTACK_DELAY = (ATTACK_DELAY == 13) ? 4 : 13;
-            mc.player.sendMessage(new TextComponentString("§eAutoPvP: Задержка переключена на §b" + ATTACK_DELAY + " §eтиков"));
+            String msg = "§eAutoPvP: Задержка переключена на §b" + ATTACK_DELAY + " §eтиков";
+            mc.player.sendMessage(new TextComponentString(msg));
             attackTimer = 0; 
         }
     }
@@ -71,30 +73,14 @@ public class AutoPvPMod {
         EntityPlayer player = event.player;
         if (player != Minecraft.getMinecraft().player || !isModActive) return;
 
-        // Накапливаем таймер
-        if (attackTimer < ATTACK_DELAY) {
-            attackTimer++;
-        }
-
-        boolean isAimbotActive = Keyboard.isKeyDown(Keyboard.KEY_LMENU);
-        boolean isAttackReady = (attackTimer >= ATTACK_DELAY);
-
-        // ⚡ ОПТИМИЗАЦИЯ: Если нам не нужно искать цели, мы вообще не трогаем мир
-        if (!isAimbotActive && !isAttackReady) return;
-
-        // ⚡ ОПТИМИЗАЦИЯ: Сканируем мир ОДИН раз за тик, а не дважды
-        double scanRadius = isAimbotActive ? 6.0 : 3.5; 
-        AxisAlignedBB area = player.getEntityBoundingBox().grow(scanRadius);
-        List<EntityLivingBase> entities = player.world.getEntitiesWithinAABB(EntityLivingBase.class, area, e -> e != player && e.isEntityAlive());
-
-        // --- 🤖 ЛОГИКА AIMBOT ---
-        if (isAimbotActive) {
-            Entity aimTarget = findClosestTarget(player, entities, 6.0);
+        // Aimbot (без изменений)
+        if (Keyboard.isKeyDown(Keyboard.KEY_LMENU)) {
+            Entity aimTarget = findAimTarget(player);
             if (aimTarget != null) {
                 double dx = aimTarget.posX - player.posX;
                 double dy = (aimTarget.posY + (aimTarget.height / 2.0)) - (player.posY + player.getEyeHeight());
                 double dz = aimTarget.posZ - player.posZ;
-                double dist = Math.sqrt(dx * dx + dz * dz); // Тут sqrt нужен для угла
+                double dist = Math.sqrt(dx * dx + dz * dz);
 
                 float targetYaw = (float) (Math.atan2(dz, dx) * 180.0D / Math.PI) - 90.0F;
                 float targetPitch = (float) (-(Math.atan2(dy, dist) * 180.0D / Math.PI));
@@ -110,57 +96,68 @@ public class AutoPvPMod {
             }
         }
 
-        // --- ⚔️ ЛОГИКА АТАКИ ---
-        if (isAttackReady) {
-            Entity target = findAttackTarget(player, entities, 3.5);
-            if (target != null) {
-                // Спуфим прицел, чтобы клиент отправил пакет атаки на сервер
-                RayTraceResult originalMouseOver = Minecraft.getMinecraft().objectMouseOver;
-                Minecraft.getMinecraft().objectMouseOver = new RayTraceResult(target);
-
-                Minecraft.getMinecraft().playerController.attackEntity(player, target);
-
-                Minecraft.getMinecraft().objectMouseOver = originalMouseOver;
-                attackTimer = 0; 
-            }
+        // Атака
+        if (attackTimer < ATTACK_DELAY) {
+            attackTimer++;
         }
+        if (attackTimer < ATTACK_DELAY) return;
+
+        Entity target = findAttackTarget(player);
+        if (target == null) return;
+
+        // 🔑 Главный фикс: подмена прицела
+        RayTraceResult originalMouseOver = Minecraft.getMinecraft().objectMouseOver;
+        Minecraft.getMinecraft().objectMouseOver = new RayTraceResult(target);
+
+        Minecraft.getMinecraft().playerController.attackEntity(player, target);
+
+        // Возвращаем прицел обратно
+        Minecraft.getMinecraft().objectMouseOver = originalMouseOver;
+
+        attackTimer = 0; 
     }
 
-    // ⚡ ОПТИМИЗИРОВАНО: Используем getDistanceSq (без квадратного корня)
-    private Entity findClosestTarget(EntityPlayer player, List<EntityLivingBase> entities, double reach) {
+    private Entity findAimTarget(EntityPlayer player) {
+        double reach = 6.0; 
+        AxisAlignedBB area = player.getEntityBoundingBox().grow(reach);
+        List<EntityLivingBase> entities = player.world.getEntitiesWithinAABB(EntityLivingBase.class, area, e -> e != player && e.isEntityAlive());
+        
         Entity bestTarget = null;
-        double bestDistanceSq = reach * reach;
+        double bestDistance = Double.MAX_VALUE;
 
         for (EntityLivingBase entity : entities) {
-            double distSq = player.getDistanceSq(entity);
-            if (distSq < bestDistanceSq) {
-                bestDistanceSq = distSq;
+            double dist = player.getDistance(entity);
+            if (dist < bestDistance) {
+                bestDistance = dist;
                 bestTarget = entity;
             }
         }
         return bestTarget;
     }
 
-    // ⚡ ОПТИМИЗИРОВАНО: Используем getDistanceSq для отсева перед тяжелым RayTrace
-    private Entity findAttackTarget(EntityPlayer player, List<EntityLivingBase> entities, double reach) {
+    private Entity findAttackTarget(EntityPlayer player) {
+        double reach = 3.5; 
+        AxisAlignedBB area = player.getEntityBoundingBox().grow(reach + 1.0);
+        List<EntityLivingBase> entities = player.world.getEntitiesWithinAABB(EntityLivingBase.class, area, e -> e != player && e.isEntityAlive());
+        
         Vec3d eyePos = player.getPositionEyes(1.0F);
         Vec3d lookVec = player.getLookVec();
         Vec3d reachVec = eyePos.add(lookVec.scale(reach)); 
 
         Entity bestTarget = null;
-        double bestDistanceSq = reach * reach;
+        double bestDistance = Double.MAX_VALUE;
 
         for (EntityLivingBase entity : entities) {
-            // Быстрая проверка (без sqrt). Отсекаем тех, кто слишком далеко
-            double distSq = player.getDistanceSq(entity);
-            if (distSq > bestDistanceSq) continue;
+            double distanceToHitbox = player.getDistance(entity) - (entity.width / 2.0);
+            if (distanceToHitbox > reach) continue;
 
-            // Тяжелая проверка (RayTrace), только если цель прошла быструю проверку
             RayTraceResult intercept = entity.getEntityBoundingBox().grow(0.1).calculateIntercept(eyePos, reachVec);
             if (intercept == null) continue; 
 
-            bestDistanceSq = distSq;
-            bestTarget = entity;
+            if (distanceToHitbox < bestDistance) {
+                bestDistance = distanceToHitbox;
+                bestTarget = entity;
+            }
         }
         return bestTarget;
     }
