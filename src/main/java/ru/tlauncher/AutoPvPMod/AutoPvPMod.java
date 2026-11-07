@@ -29,7 +29,7 @@ public class AutoPvPMod {
     private static KeyBinding keyToggleMod;
     private static boolean isModActive = false;
     private static int attackTimer = 0;
-    private static final int ATTACK_DELAY = 12; // 100% заряда для меча (1.6 attack speed)
+    private static final int ATTACK_DELAY = 13; // 100% заряда для меча (1.6 attack speed)
 
     @Mod.EventHandler
     public void init(FMLInitializationEvent event) {
