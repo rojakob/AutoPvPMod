@@ -34,7 +34,7 @@ public class AutoPvPMod {
     @Mod.EventHandler
     public void init(FMLInitializationEvent event) {
         // Изменили клавишу на Z
-        keyToggleMod = new KeyBinding("key.autopvp18.toggle", Keyboard.KEY_Z, "key.categories.combat");
+        keyToggleMod = new KeyBinding("key.autopvp18.toggle", Keyboard.KEY_R, "key.categories.combat");
         
         ClientRegistry.registerKeyBinding(keyToggleMod);
         
