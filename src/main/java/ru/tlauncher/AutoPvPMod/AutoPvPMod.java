@@ -5,6 +5,7 @@ import net.minecraft.client.settings.KeyBinding;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityLivingBase;
 import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.network.play.client.CPacketPlayer;
 import net.minecraft.util.math.AxisAlignedBB;
 import net.minecraft.util.math.RayTraceResult;
 import net.minecraft.util.math.Vec3d;
@@ -25,15 +26,13 @@ public class AutoPvPMod {
 
     public static final String MODID = "autopvp";
     public static final String NAME = "Auto PvP";
-    public static final String VERSION = "1.5"; // Версия с Aimbot
+    public static final String VERSION = "1.6"; // Фикс серверного урона
 
     private static KeyBinding keyToggleMod;
     private static KeyBinding keyToggleDelay;
     
     private static boolean isModActive = false;
     private static int attackTimer = 0;
-    
-    // Динамическая задержка
     private static int ATTACK_DELAY = 13; 
 
     @Mod.EventHandler
@@ -45,7 +44,7 @@ public class AutoPvPMod {
         ClientRegistry.registerKeyBinding(keyToggleDelay);
         
         MinecraftForge.EVENT_BUS.register(this);
-        System.out.println("AutoPvP Mod v1.5 (Aimbot Edition) загружен!");
+        System.out.println("AutoPvP Mod v1.6 (Server Sync Edition) загружен!");
     }
 
     @SubscribeEvent
@@ -75,28 +74,26 @@ public class AutoPvPMod {
         EntityPlayer player = event.player;
         if (player != Minecraft.getMinecraft().player || !isModActive) return;
 
-        // --- 🤖 ЛОГИКА AIMBOT (Удержание Left Alt) ---
-        // Оптимизация: проверяем нажатие клавиши ДО того, как искать цели
+        // --- 🤖 ЛОГИКА AIMBOT ---
         if (Keyboard.isKeyDown(Keyboard.KEY_LMENU)) {
             Entity aimTarget = findAimTarget(player);
             if (aimTarget != null) {
-                // Математика наведения
                 double dx = aimTarget.posX - player.posX;
                 double dy = (aimTarget.posY + (aimTarget.height / 2.0)) - (player.posY + player.getEyeHeight());
                 double dz = aimTarget.posZ - player.posZ;
                 double dist = Math.sqrt(dx * dx + dz * dz);
 
-                // Вычисляем углы
                 float targetYaw = (float) (Math.atan2(dz, dx) * 180.0D / Math.PI) - 90.0F;
                 float targetPitch = (float) (-(Math.atan2(dy, dist) * 180.0D / Math.PI));
 
-                // Мгновенно поворачиваем камеру (с защитой от рывков при переходе через 180 градусов)
                 player.rotationYaw = targetYaw;
                 player.rotationPitch = targetPitch;
-                
-                // Синхронизируем прошлые углы, чтобы не было визуального "дрожания"
                 player.prevRotationYaw = targetYaw;
                 player.prevRotationPitch = targetPitch;
+
+                // 🔑 КРИТИЧЕСКИ ВАЖНО: Отправляем пакет поворота на сервер СРАЗУ!
+                // Это гарантирует, что сервер узнает о повороте ДО того, как придет пакет атаки.
+                player.connection.sendPacket(new CPacketPlayer.Rotation(targetYaw, targetPitch, player.onGround));
             }
         }
 
@@ -106,17 +103,16 @@ public class AutoPvPMod {
         }
         if (attackTimer < ATTACK_DELAY) return;
 
-        // Ищем цель для удара (луч взгляда, который мы только что повернули)
         Entity target = findAttackTarget(player);
         if (target == null) return;
 
+        // Наносим удар
         Minecraft.getMinecraft().playerController.attackEntity(player, target);
         attackTimer = 0; 
     }
 
-    // 🎯 Поиск цели для Aimbot (ищет ближайшего врага в радиусе 6 блоков, без проверки взгляда)
     private Entity findAimTarget(EntityPlayer player) {
-        double reach = 6.0; // Радиус поиска для наведения
+        double reach = 6.0; 
         AxisAlignedBB area = player.getEntityBoundingBox().grow(reach);
         List<EntityLivingBase> entities = player.world.getEntitiesWithinAABB(EntityLivingBase.class, area, e -> e != player && e.isEntityAlive());
         
@@ -124,7 +120,6 @@ public class AutoPvPMod {
         double bestDistance = Double.MAX_VALUE;
 
         for (EntityLivingBase entity : entities) {
-            // Проверяем дистанцию от глаз игрока до центра врага
             double dist = player.getDistance(entity);
             if (dist < bestDistance) {
                 bestDistance = dist;
@@ -134,9 +129,8 @@ public class AutoPvPMod {
         return bestTarget;
     }
 
-    // 🔍 Поиск цели для Атаки (только та, на которую направлен прицел)
     private Entity findAttackTarget(EntityPlayer player) {
-        double reach = 3.0; 
+        double reach = 3.5; 
         AxisAlignedBB area = player.getEntityBoundingBox().grow(reach + 1.0);
         List<EntityLivingBase> entities = player.world.getEntitiesWithinAABB(EntityLivingBase.class, area, e -> e != player && e.isEntityAlive());
         
