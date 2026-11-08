@@ -7,6 +7,7 @@ import net.minecraft.entity.EntityLivingBase;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.network.play.client.CPacketPlayer;
 import net.minecraft.network.play.client.CPacketUseEntity;
+import net.minecraft.util.EnumHand;
 import net.minecraft.util.math.AxisAlignedBB;
 import net.minecraft.util.math.RayTraceResult;
 import net.minecraft.util.math.Vec3d;
@@ -27,7 +28,7 @@ public class AutoPvPMod {
 
     public static final String MODID = "autopvp";
     public static final String NAME = "Auto PvP";
-    public static final String VERSION = "2.0.1";
+    public static final String VERSION = "2.0.2";
 
     private static KeyBinding keyToggleMod;
     private static KeyBinding keyToggleDelay;
@@ -45,7 +46,7 @@ public class AutoPvPMod {
         ClientRegistry.registerKeyBinding(keyToggleDelay);
 
         MinecraftForge.EVENT_BUS.register(this);
-        System.out.println("AutoPvP Mod v2.0.1 загружен!");
+        System.out.println("AutoPvP Mod v2.0.2 (Compilation Fix) загружен!");
     }
 
     @SubscribeEvent
@@ -61,7 +62,7 @@ public class AutoPvPMod {
         }
 
         if (keyToggleDelay.isPressed()) {
-            // 12 -> 5 -> 12
+            // Переключение 12 <-> 5
             ATTACK_DELAY = (ATTACK_DELAY == 12) ? 5 : 12;
             String msg = "§eAutoPvP: Задержка §b" + ATTACK_DELAY + " §eтиков";
             mc.player.sendMessage(new TextComponentString(msg));
@@ -108,7 +109,7 @@ public class AutoPvPMod {
         Entity target = findAttackTarget(player);
         if (target == null) return;
 
-        // Синхронизация позиции/поворота перед ударом
+        // Синхронизация позиции/поворота
         Minecraft.getMinecraft().getConnection().sendPacket(
                 new CPacketPlayer.PositionRotation(
                         player.posX, player.posY, player.posZ,
@@ -117,13 +118,13 @@ public class AutoPvPMod {
                 )
         );
 
-        // Прямой пакет атаки (2 аргумента — без Vec3d)
+        // 🔑 ИСПРАВЛЕННЫЙ ПАКЕТ АТАКИ (с EnumHand вместо Action)
         Minecraft.getMinecraft().getConnection().sendPacket(
-                new CPacketUseEntity(target, CPacketUseEntity.Action.ATTACK)
+                new CPacketUseEntity(target, EnumHand.MAIN_HAND)
         );
 
         // Визуальный взмах
-        player.swingArm(net.minecraft.util.EnumHand.MAIN_HAND);
+        player.swingArm(EnumHand.MAIN_HAND);
 
         attackTimer = 0;
     }
