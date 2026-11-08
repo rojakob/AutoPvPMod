@@ -5,12 +5,6 @@ import net.minecraft.client.settings.KeyBinding;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityLivingBase;
 import net.minecraft.entity.player.EntityPlayer;
-import net.minecraft.network.play.client.CPacketPlayer;
-import net.minecraft.network.play.client.CPacketUseEntity;
-import net.minecraft.util.EnumHand;
-import net.minecraft.util.math.AxisAlignedBB;
-import net.minecraft.util.math.RayTraceResult;
-import net.minecraft.util.math.Vec3d;
 import net.minecraft.util.text.TextComponentString;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.fml.client.registry.ClientRegistry;
@@ -21,32 +15,36 @@ import net.minecraftforge.fml.common.gameevent.InputEvent;
 import net.minecraftforge.fml.common.gameevent.TickEvent;
 import org.lwjgl.input.Keyboard;
 
+import java.util.Comparator;
 import java.util.List;
+import java.util.stream.Collectors;
 
 @Mod(modid = AutoPvPMod.MODID, name = AutoPvPMod.NAME, version = AutoPvPMod.VERSION)
 public class AutoPvPMod {
 
     public static final String MODID = "autopvp";
     public static final String NAME = "Auto PvP";
-    public static final String VERSION = "2.0.2";
+    public static final String VERSION = "3.0"; // KillAura Logic
 
-    private static KeyBinding keyToggleMod;
-    private static KeyBinding keyToggleDelay;
+    private static KeyBinding keyToggleAura;
+    private static KeyBinding keyToggleCrits;
 
-    private static boolean isModActive = false;
-    private static int attackTimer = 0;
-    private static int ATTACK_DELAY = 12; // По умолчанию 12
+    private static boolean isAuraActive = false;
+    private static boolean isCritsActive = false;
+
+    // Радиус атаки (можно менять)
+    private static final double ATTACK_RANGE = 3.8;
 
     @Mod.EventHandler
     public void init(FMLInitializationEvent event) {
-        keyToggleMod = new KeyBinding("key.autopvp.toggle", Keyboard.KEY_X, "key.categories.combat");
-        keyToggleDelay = new KeyBinding("key.autopvp.delay", Keyboard.KEY_R, "key.categories.combat");
+        keyToggleAura = new KeyBinding("key.autopvp.aura", Keyboard.KEY_X, "key.categories.combat");
+        keyToggleCrits = new KeyBinding("key.autopvp.crits", Keyboard.KEY_R, "key.categories.combat");
 
-        ClientRegistry.registerKeyBinding(keyToggleMod);
-        ClientRegistry.registerKeyBinding(keyToggleDelay);
+        ClientRegistry.registerKeyBinding(keyToggleAura);
+        ClientRegistry.registerKeyBinding(keyToggleCrits);
 
         MinecraftForge.EVENT_BUS.register(this);
-        System.out.println("AutoPvP Mod v2.0.2 (Compilation Fix) загружен!");
+        System.out.println("AutoPvP Mod v3.0 (KillAura Edition) загружен!");
     }
 
     @SubscribeEvent
@@ -54,19 +52,24 @@ public class AutoPvPMod {
         Minecraft mc = Minecraft.getMinecraft();
         if (mc.player == null) return;
 
-        if (keyToggleMod.isPressed()) {
-            isModActive = !isModActive;
-            String msg = "AutoPvP: " + (isModActive ? "§aВключен" : "§cВыключен");
+        if (keyToggleAura.isPressed()) {
+            isAuraActive = !isAuraActive;
+            String msg = "KillAura: " + (isAuraActive ? "§aВключена" : "§cВыключена");
             mc.player.sendMessage(new TextComponentString(msg));
-            attackTimer = 0;
+            if (!isAuraActive) {
+                isCritsActive = false;
+                mc.player.sendMessage(new TextComponentString("§eCriticals: §cАвтоматически выключены"));
+            }
         }
 
-        if (keyToggleDelay.isPressed()) {
-            // Переключение 12 <-> 5
-            ATTACK_DELAY = (ATTACK_DELAY == 12) ? 5 : 12;
-            String msg = "§eAutoPvP: Задержка §b" + ATTACK_DELAY + " §eтиков";
+        if (keyToggleCrits.isPressed()) {
+            if (!isAuraActive) {
+                mc.player.sendMessage(new TextComponentString("§cСначала включите KillAura (Клавиша X)"));
+                return;
+            }
+            isCritsActive = !isCritsActive;
+            String msg = "Criticals: " + (isCritsActive ? "§aВключены" : "§cВыключены");
             mc.player.sendMessage(new TextComponentString(msg));
-            attackTimer = 0;
         }
     }
 
@@ -75,102 +78,46 @@ public class AutoPvPMod {
         if (event.phase != TickEvent.Phase.END || !event.player.world.isRemote) return;
 
         EntityPlayer player = event.player;
-        if (player != Minecraft.getMinecraft().player || !isModActive) return;
+        if (player != Minecraft.getMinecraft().player || !isAuraActive) return;
 
-        // Aimbot
-        if (Keyboard.isKeyDown(Keyboard.KEY_LMENU)) {
-            Entity aimTarget = findAimTarget(player);
-            if (aimTarget != null) {
-                double dx = aimTarget.posX - player.posX;
-                double dy = (aimTarget.posY + aimTarget.getEyeHeight()) - (player.posY + player.getEyeHeight());
-                double dz = aimTarget.posZ - player.posZ;
-                double dist = Math.sqrt(dx * dx + dz * dz);
-
-                float targetYaw = (float) (Math.atan2(dz, dx) * 180.0D / Math.PI) - 90.0F;
-                float targetPitch = (float) (-(Math.atan2(dy, dist) * 180.0D / Math.PI));
-
-                player.rotationYaw = targetYaw;
-                player.rotationPitch = targetPitch;
-                player.prevRotationYaw = targetYaw;
-                player.prevRotationPitch = targetPitch;
-
-                Minecraft.getMinecraft().getConnection().sendPacket(
-                        new CPacketPlayer.Rotation(targetYaw, targetPitch, player.onGround)
-                );
-            }
+        // 1. Проверяем кулдаун атаки. Если меч не заряжен на 100% — ничего не делаем.
+        // Это самый важный пункт для "легитимности" и прохождения урона.
+        if (player.getAttackCooldownProgress(0.5f) < 1.0f) {
+            return;
         }
 
-        // Атака
-        if (attackTimer < ATTACK_DELAY) {
-            attackTimer++;
-        }
-        if (attackTimer < ATTACK_DELAY) return;
-
-        Entity target = findAttackTarget(player);
+        // 2. Ищем ближайшую живую цель в радиусе
+        EntityLivingBase target = findClosestTarget(player);
         if (target == null) return;
 
-        // Синхронизация позиции/поворота
-        Minecraft.getMinecraft().getConnection().sendPacket(
-                new CPacketPlayer.PositionRotation(
-                        player.posX, player.posY, player.posZ,
-                        player.rotationYaw, player.rotationPitch,
-                        player.onGround
-                )
-        );
+        // 3. Если включены криты, прыгаем ПЕРЕД атакой
+        if (isCritsActive && player.onGround && !player.isInWater() && !player.isOnLadder()) {
+            player.jump();
+        }
 
-        // 🔑 ИСПРАВЛЕННЫЙ ПАКЕТ АТАКИ (с EnumHand вместо Action)
-        Minecraft.getMinecraft().getConnection().sendPacket(
-                new CPacketUseEntity(target, EnumHand.MAIN_HAND)
-        );
-
-        // Визуальный взмах
-        player.swingArm(EnumHand.MAIN_HAND);
-
-        attackTimer = 0;
+        // 4. Атакуем НАТИВНЫМ методом игры (как при клике ЛКМ)
+        Minecraft.getMinecraft().playerController.attackEntity(player, target);
+        
+        // 5. Взмах рукой для визуала (сервер и так увидит атаку)
+        player.swingArm(net.minecraft.util.EnumHand.MAIN_HAND);
     }
 
-    private Entity findAimTarget(EntityPlayer player) {
-        double reach = 6.0;
-        AxisAlignedBB area = player.getEntityBoundingBox().grow(reach);
-        List<EntityLivingBase> entities = player.world.getEntitiesWithinAABB(EntityLivingBase.class, area, e -> e != player && e.isEntityAlive());
+    /**
+     * Находит ближайшую сущность, которую можно атаковать.
+     * Использует стримы и компаратор для оптимизации.
+     */
+    private EntityLivingBase findClosestTarget(EntityPlayer player) {
+        // Получаем список всех сущностей в радиусе
+        List<Entity> entities = player.world.getEntitiesWithinAABBExcludingEntity(
+                player,
+                player.getEntityBoundingBox().grow(ATTACK_RANGE)
+        );
 
-        Entity bestTarget = null;
-        double bestDistance = Double.MAX_VALUE;
-
-        for (EntityLivingBase entity : entities) {
-            double dist = player.getDistance(entity);
-            if (dist < bestDistance) {
-                bestDistance = dist;
-                bestTarget = entity;
-            }
-        }
-        return bestTarget;
-    }
-
-    private Entity findAttackTarget(EntityPlayer player) {
-        double reach = 3.5;
-        AxisAlignedBB area = player.getEntityBoundingBox().grow(reach + 1.0);
-        List<EntityLivingBase> entities = player.world.getEntitiesWithinAABB(EntityLivingBase.class, area, e -> e != player && e.isEntityAlive());
-
-        Vec3d eyePos = player.getPositionEyes(1.0F);
-        Vec3d lookVec = player.getLookVec();
-        Vec3d reachVec = eyePos.add(lookVec.scale(reach));
-
-        Entity bestTarget = null;
-        double bestDistance = Double.MAX_VALUE;
-
-        for (EntityLivingBase entity : entities) {
-            double distanceToHitbox = player.getDistance(entity) - (entity.width / 2.0);
-            if (distanceToHitbox > reach) continue;
-
-            RayTraceResult intercept = entity.getEntityBoundingBox().grow(0.1).calculateIntercept(eyePos, reachVec);
-            if (intercept == null) continue;
-
-            if (distanceToHitbox < bestDistance) {
-                bestDistance = distanceToHitbox;
-                bestTarget = entity;
-            }
-        }
-        return bestTarget;
+        return entities.stream()
+                .filter(e -> e instanceof EntityLivingBase) // Только живые
+                .map(e -> (EntityLivingBase) e) // Приводим тип
+                .filter(e -> e.isEntityAlive() && e.getDistance(player) <= ATTACK_RANGE) // Фильтр по дистанции и жизни
+                .min(Comparator.comparingDouble(e -> e.getDistanceSq(player))) // Берем ближайшего (сравниваем квадраты расстояний для скорости)
+                .orElse(null);
     }
 }
