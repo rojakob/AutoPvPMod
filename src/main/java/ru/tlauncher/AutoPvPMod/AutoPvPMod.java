@@ -5,6 +5,8 @@ import net.minecraft.client.settings.KeyBinding;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityLivingBase;
 import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.network.play.client.CPacketPlayer;
+import net.minecraft.network.play.client.CPacketUseEntity;
 import net.minecraft.util.math.AxisAlignedBB;
 import net.minecraft.util.math.RayTraceResult;
 import net.minecraft.util.math.Vec3d;
@@ -25,25 +27,25 @@ public class AutoPvPMod {
 
     public static final String MODID = "autopvp";
     public static final String NAME = "Auto PvP";
-    public static final String VERSION = "1.8"; // The Packet Fix
+    public static final String VERSION = "2.0"; // Direct Packet Attack
 
     private static KeyBinding keyToggleMod;
     private static KeyBinding keyToggleDelay;
-    
+
     private static boolean isModActive = false;
     private static int attackTimer = 0;
-    private static int ATTACK_DELAY = 12; 
+    private static int ATTACK_DELAY = 13;
 
     @Mod.EventHandler
     public void init(FMLInitializationEvent event) {
         keyToggleMod = new KeyBinding("key.autopvp.toggle", Keyboard.KEY_X, "key.categories.combat");
         keyToggleDelay = new KeyBinding("key.autopvp.delay", Keyboard.KEY_R, "key.categories.combat");
-        
+
         ClientRegistry.registerKeyBinding(keyToggleMod);
         ClientRegistry.registerKeyBinding(keyToggleDelay);
-        
+
         MinecraftForge.EVENT_BUS.register(this);
-        System.out.println("AutoPvP Mod v1.8 (Packet Fix) загружен!");
+        System.out.println("AutoPvP Mod v2.0 (Direct Attack) загружен!");
     }
 
     @SubscribeEvent
@@ -55,30 +57,31 @@ public class AutoPvPMod {
             isModActive = !isModActive;
             String msg = "AutoPvP: " + (isModActive ? "§aВключен" : "§cВыключен");
             mc.player.sendMessage(new TextComponentString(msg));
-            attackTimer = 0; 
+            attackTimer = 0;
         }
 
         if (keyToggleDelay.isPressed()) {
-            ATTACK_DELAY = (ATTACK_DELAY == 12) ? 5 : 12;
+            ATTACK_DELAY = (ATTACK_DELAY == 13) ? 4 : 13;
             String msg = "§eAutoPvP: Задержка переключена на §b" + ATTACK_DELAY + " §eтиков";
             mc.player.sendMessage(new TextComponentString(msg));
-            attackTimer = 0; 
+            attackTimer = 0;
         }
     }
 
     @SubscribeEvent
     public void onPlayerTick(TickEvent.PlayerTickEvent event) {
         if (event.phase != TickEvent.Phase.END || !event.player.world.isRemote) return;
-        
+
         EntityPlayer player = event.player;
         if (player != Minecraft.getMinecraft().player || !isModActive) return;
 
-        // Aimbot (без изменений)
+        // --- 🤖 AIMBOT (наводимся на ГЛАЗА цели) ---
         if (Keyboard.isKeyDown(Keyboard.KEY_LMENU)) {
             Entity aimTarget = findAimTarget(player);
             if (aimTarget != null) {
+                // Наводимся на уровень глаз цели, чтобы пройти проверку canEntityBeSeen
                 double dx = aimTarget.posX - player.posX;
-                double dy = (aimTarget.posY + (aimTarget.height / 2.0)) - (player.posY + player.getEyeHeight());
+                double dy = (aimTarget.posY + aimTarget.getEyeHeight()) - (player.posY + player.getEyeHeight());
                 double dz = aimTarget.posZ - player.posZ;
                 double dist = Math.sqrt(dx * dx + dz * dz);
 
@@ -90,13 +93,14 @@ public class AutoPvPMod {
                 player.prevRotationYaw = targetYaw;
                 player.prevRotationPitch = targetPitch;
 
+                // Синхронизируем поворот с сервером ДО любых других действий
                 Minecraft.getMinecraft().getConnection().sendPacket(
-                    new net.minecraft.network.play.client.CPacketPlayer.Rotation(targetYaw, targetPitch, player.onGround)
+                        new CPacketPlayer.Rotation(targetYaw, targetPitch, player.onGround)
                 );
             }
         }
 
-        // Атака
+        // --- ⚔️ ПРЯМАЯ АТАКА ПАКЕТОМ ---
         if (attackTimer < ATTACK_DELAY) {
             attackTimer++;
         }
@@ -105,23 +109,38 @@ public class AutoPvPMod {
         Entity target = findAttackTarget(player);
         if (target == null) return;
 
-        // 🔑 Главный фикс: подмена прицела
-        RayTraceResult originalMouseOver = Minecraft.getMinecraft().objectMouseOver;
-        Minecraft.getMinecraft().objectMouseOver = new RayTraceResult(target);
+        // 1. Финальная синхронизация позиции и поворота
+        Minecraft.getMinecraft().getConnection().sendPacket(
+                new CPacketPlayer.PositionRotation(
+                        player.posX, player.posY, player.posZ,
+                        player.rotationYaw, player.rotationPitch,
+                        player.onGround
+                )
+        );
 
-        Minecraft.getMinecraft().playerController.attackEntity(player, target);
+        // 2. Отправляем пакет атаки НАПРЯМУЮ (без playerController)
+        // Используем конструктор с вектором попадания (центр хитбокса)
+        Vec3d hitVec = new Vec3d(
+                target.posX,
+                target.posY + (target.height / 2.0),
+                target.posZ
+        );
 
-        // Возвращаем прицел обратно
-        Minecraft.getMinecraft().objectMouseOver = originalMouseOver;
+        Minecraft.getMinecraft().getConnection().sendPacket(
+                new CPacketUseEntity(target, CPacketUseEntity.Action.ATTACK, hitVec)
+        );
 
-        attackTimer = 0; 
+        // 3. Визуальный взмах рукой
+        player.swingArm(net.minecraft.util.EnumHand.MAIN_HAND);
+
+        attackTimer = 0;
     }
 
     private Entity findAimTarget(EntityPlayer player) {
-        double reach = 6.0; 
+        double reach = 6.0;
         AxisAlignedBB area = player.getEntityBoundingBox().grow(reach);
         List<EntityLivingBase> entities = player.world.getEntitiesWithinAABB(EntityLivingBase.class, area, e -> e != player && e.isEntityAlive());
-        
+
         Entity bestTarget = null;
         double bestDistance = Double.MAX_VALUE;
 
@@ -136,13 +155,13 @@ public class AutoPvPMod {
     }
 
     private Entity findAttackTarget(EntityPlayer player) {
-        double reach = 3.5; 
+        double reach = 3.5;
         AxisAlignedBB area = player.getEntityBoundingBox().grow(reach + 1.0);
         List<EntityLivingBase> entities = player.world.getEntitiesWithinAABB(EntityLivingBase.class, area, e -> e != player && e.isEntityAlive());
-        
+
         Vec3d eyePos = player.getPositionEyes(1.0F);
         Vec3d lookVec = player.getLookVec();
-        Vec3d reachVec = eyePos.add(lookVec.scale(reach)); 
+        Vec3d reachVec = eyePos.add(lookVec.scale(reach));
 
         Entity bestTarget = null;
         double bestDistance = Double.MAX_VALUE;
@@ -152,7 +171,7 @@ public class AutoPvPMod {
             if (distanceToHitbox > reach) continue;
 
             RayTraceResult intercept = entity.getEntityBoundingBox().grow(0.1).calculateIntercept(eyePos, reachVec);
-            if (intercept == null) continue; 
+            if (intercept == null) continue;
 
             if (distanceToHitbox < bestDistance) {
                 bestDistance = distanceToHitbox;
