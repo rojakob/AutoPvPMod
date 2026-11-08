@@ -27,14 +27,14 @@ public class AutoPvPMod {
 
     public static final String MODID = "autopvp";
     public static final String NAME = "Auto PvP";
-    public static final String VERSION = "2.0"; // Direct Packet Attack
+    public static final String VERSION = "2.0.1";
 
     private static KeyBinding keyToggleMod;
     private static KeyBinding keyToggleDelay;
 
     private static boolean isModActive = false;
     private static int attackTimer = 0;
-    private static int ATTACK_DELAY = 13;
+    private static int ATTACK_DELAY = 12; // По умолчанию 12
 
     @Mod.EventHandler
     public void init(FMLInitializationEvent event) {
@@ -45,7 +45,7 @@ public class AutoPvPMod {
         ClientRegistry.registerKeyBinding(keyToggleDelay);
 
         MinecraftForge.EVENT_BUS.register(this);
-        System.out.println("AutoPvP Mod v2.0 (Direct Attack) загружен!");
+        System.out.println("AutoPvP Mod v2.0.1 загружен!");
     }
 
     @SubscribeEvent
@@ -61,8 +61,9 @@ public class AutoPvPMod {
         }
 
         if (keyToggleDelay.isPressed()) {
-            ATTACK_DELAY = (ATTACK_DELAY == 13) ? 4 : 13;
-            String msg = "§eAutoPvP: Задержка переключена на §b" + ATTACK_DELAY + " §eтиков";
+            // 12 -> 5 -> 12
+            ATTACK_DELAY = (ATTACK_DELAY == 12) ? 5 : 12;
+            String msg = "§eAutoPvP: Задержка §b" + ATTACK_DELAY + " §eтиков";
             mc.player.sendMessage(new TextComponentString(msg));
             attackTimer = 0;
         }
@@ -75,11 +76,10 @@ public class AutoPvPMod {
         EntityPlayer player = event.player;
         if (player != Minecraft.getMinecraft().player || !isModActive) return;
 
-        // --- 🤖 AIMBOT (наводимся на ГЛАЗА цели) ---
+        // Aimbot
         if (Keyboard.isKeyDown(Keyboard.KEY_LMENU)) {
             Entity aimTarget = findAimTarget(player);
             if (aimTarget != null) {
-                // Наводимся на уровень глаз цели, чтобы пройти проверку canEntityBeSeen
                 double dx = aimTarget.posX - player.posX;
                 double dy = (aimTarget.posY + aimTarget.getEyeHeight()) - (player.posY + player.getEyeHeight());
                 double dz = aimTarget.posZ - player.posZ;
@@ -93,14 +93,13 @@ public class AutoPvPMod {
                 player.prevRotationYaw = targetYaw;
                 player.prevRotationPitch = targetPitch;
 
-                // Синхронизируем поворот с сервером ДО любых других действий
                 Minecraft.getMinecraft().getConnection().sendPacket(
                         new CPacketPlayer.Rotation(targetYaw, targetPitch, player.onGround)
                 );
             }
         }
 
-        // --- ⚔️ ПРЯМАЯ АТАКА ПАКЕТОМ ---
+        // Атака
         if (attackTimer < ATTACK_DELAY) {
             attackTimer++;
         }
@@ -109,7 +108,7 @@ public class AutoPvPMod {
         Entity target = findAttackTarget(player);
         if (target == null) return;
 
-        // 1. Финальная синхронизация позиции и поворота
+        // Синхронизация позиции/поворота перед ударом
         Minecraft.getMinecraft().getConnection().sendPacket(
                 new CPacketPlayer.PositionRotation(
                         player.posX, player.posY, player.posZ,
@@ -118,19 +117,12 @@ public class AutoPvPMod {
                 )
         );
 
-        // 2. Отправляем пакет атаки НАПРЯМУЮ (без playerController)
-        // Используем конструктор с вектором попадания (центр хитбокса)
-        Vec3d hitVec = new Vec3d(
-                target.posX,
-                target.posY + (target.height / 2.0),
-                target.posZ
-        );
-
+        // Прямой пакет атаки (2 аргумента — без Vec3d)
         Minecraft.getMinecraft().getConnection().sendPacket(
-                new CPacketUseEntity(target, CPacketUseEntity.Action.ATTACK, hitVec)
+                new CPacketUseEntity(target, CPacketUseEntity.Action.ATTACK)
         );
 
-        // 3. Визуальный взмах рукой
+        // Визуальный взмах
         player.swingArm(net.minecraft.util.EnumHand.MAIN_HAND);
 
         attackTimer = 0;
