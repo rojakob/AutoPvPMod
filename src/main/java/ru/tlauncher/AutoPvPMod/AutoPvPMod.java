@@ -106,10 +106,10 @@ public class AutoPvPMod {
                 .min(Comparator.comparingDouble(e -> e.getDistanceSq(player)))
                 .orElse(null);
     }
-}
 
 
-  // ==========================================
+
+      // ==========================================
     // НОВЫЙ ИЗОЛИРОВАННЫЙ ОБРАБОТЧИК AIMBOT
     // ==========================================
     @SubscribeEvent
@@ -157,3 +157,7 @@ public class AutoPvPMod {
                 .orElse(null);
     }
 }
+}
+
+
+
