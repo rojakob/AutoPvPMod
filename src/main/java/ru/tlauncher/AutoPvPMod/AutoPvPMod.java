@@ -24,7 +24,7 @@ public class AutoPvPMod {
 
     public static final String MODID = "autopvp";
     public static final String NAME = "Auto PvP";
-    public static final String VERSION = "3.0.1"; // Исправленный метод кулдауна
+    public static final String VERSION = "3.0.2";
 
     private static KeyBinding keyToggleAura;
     private static KeyBinding keyToggleCrits;
@@ -43,7 +43,7 @@ public class AutoPvPMod {
         ClientRegistry.registerKeyBinding(keyToggleCrits);
 
         MinecraftForge.EVENT_BUS.register(this);
-        System.out.println("AutoPvP Mod v3.0.1 (CooledAttackStrength Fix) загружен!");
+        System.out.println("AutoPvP Mod v3.0.2 (Aimbot Edition) загружен!");
     }
 
     @SubscribeEvent
@@ -77,7 +77,6 @@ public class AutoPvPMod {
         EntityPlayer player = event.player;
         if (player != Minecraft.getMinecraft().player || !isAuraActive) return;
 
-        // 🔑 ИСПРАВЛЕНО: используем getCooledAttackStrength(0) для 1.12.2
         if (player.getCooledAttackStrength(0) < 1.0F) {
             return;
         }
@@ -107,23 +106,16 @@ public class AutoPvPMod {
                 .orElse(null);
     }
 
-
-
-      // ==========================================
-    // НОВЫЙ ИЗОЛИРОВАННЫЙ ОБРАБОТЧИК AIMBOT
-    // ==========================================
     @SubscribeEvent
     public void onAimbotTick(TickEvent.PlayerTickEvent event) {
         if (event.phase != TickEvent.Phase.END || !event.player.world.isRemote) return;
-        
+
         EntityPlayer player = event.player;
         if (player != Minecraft.getMinecraft().player) return;
 
-        // Проверяем, зажат ли Left Alt
         if (Keyboard.isKeyDown(Keyboard.KEY_LMENU)) {
             EntityLivingBase aimTarget = findAimTarget(player);
             if (aimTarget != null) {
-                // Математика наведения на центр хитбокса цели
                 double dx = aimTarget.posX - player.posX;
                 double dy = (aimTarget.posY + (aimTarget.height / 2.0)) - (player.posY + player.getEyeHeight());
                 double dz = aimTarget.posZ - player.posZ;
@@ -132,7 +124,6 @@ public class AutoPvPMod {
                 float targetYaw = (float) (Math.atan2(dz, dx) * 180.0D / Math.PI) - 90.0F;
                 float targetPitch = (float) (-(Math.atan2(dy, dist) * 180.0D / Math.PI));
 
-                // Мгновенный поворот камеры
                 player.rotationYaw = targetYaw;
                 player.rotationPitch = targetPitch;
                 player.prevRotationYaw = targetYaw;
@@ -141,7 +132,6 @@ public class AutoPvPMod {
         }
     }
 
-    // Отдельный метод поиска для Aimbot (радиус 6 блоков, чтобы замечать врагов издалека)
     private EntityLivingBase findAimTarget(EntityPlayer player) {
         double reach = 6.0;
         List<Entity> entities = player.world.getEntitiesWithinAABBExcludingEntity(
@@ -157,7 +147,3 @@ public class AutoPvPMod {
                 .orElse(null);
     }
 }
-}
-
-
-
