@@ -107,3 +107,53 @@ public class AutoPvPMod {
                 .orElse(null);
     }
 }
+
+
+  // ==========================================
+    // НОВЫЙ ИЗОЛИРОВАННЫЙ ОБРАБОТЧИК AIMBOT
+    // ==========================================
+    @SubscribeEvent
+    public void onAimbotTick(TickEvent.PlayerTickEvent event) {
+        if (event.phase != TickEvent.Phase.END || !event.player.world.isRemote) return;
+        
+        EntityPlayer player = event.player;
+        if (player != Minecraft.getMinecraft().player) return;
+
+        // Проверяем, зажат ли Left Alt
+        if (Keyboard.isKeyDown(Keyboard.KEY_LMENU)) {
+            EntityLivingBase aimTarget = findAimTarget(player);
+            if (aimTarget != null) {
+                // Математика наведения на центр хитбокса цели
+                double dx = aimTarget.posX - player.posX;
+                double dy = (aimTarget.posY + (aimTarget.height / 2.0)) - (player.posY + player.getEyeHeight());
+                double dz = aimTarget.posZ - player.posZ;
+                double dist = Math.sqrt(dx * dx + dz * dz);
+
+                float targetYaw = (float) (Math.atan2(dz, dx) * 180.0D / Math.PI) - 90.0F;
+                float targetPitch = (float) (-(Math.atan2(dy, dist) * 180.0D / Math.PI));
+
+                // Мгновенный поворот камеры
+                player.rotationYaw = targetYaw;
+                player.rotationPitch = targetPitch;
+                player.prevRotationYaw = targetYaw;
+                player.prevRotationPitch = targetPitch;
+            }
+        }
+    }
+
+    // Отдельный метод поиска для Aimbot (радиус 6 блоков, чтобы замечать врагов издалека)
+    private EntityLivingBase findAimTarget(EntityPlayer player) {
+        double reach = 6.0;
+        List<Entity> entities = player.world.getEntitiesWithinAABBExcludingEntity(
+                player,
+                player.getEntityBoundingBox().grow(reach)
+        );
+
+        return entities.stream()
+                .filter(e -> e instanceof EntityLivingBase)
+                .map(e -> (EntityLivingBase) e)
+                .filter(e -> e.isEntityAlive() && e.getDistance(player) <= reach)
+                .min(Comparator.comparingDouble(e -> e.getDistanceSq(player)))
+                .orElse(null);
+    }
+}
